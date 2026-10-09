@@ -1,0 +1,33 @@
+# VCS / IDE / local tooling
+.git
+.gitignore
+.venv
+.vscode
+.idea
+.python-version
+.ruff_cache
+.pytest_cache
+.mypy_cache
+.DS_Store
+
+# Secrets (injected at runtime via Compose / env)
+.env
+.env.*
+
+# Not needed inside the image
+*.md
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Python debris
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+.coverage
+htmlcov
+tests
+**/tests
+
+# Alembic authoring helper (not used by `alembic upgrade`)
+alembic/script.py.mako
