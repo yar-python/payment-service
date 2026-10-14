@@ -6,17 +6,8 @@
 
 ```bash
 git clone https://github.com/yar-python/payment-service.git
-```
-
-```bash
 cd payment-service
-```
-
-```bash
 cp .env.example .env
-```
-
-```bash
 docker compose up -d --build
 ```
 
