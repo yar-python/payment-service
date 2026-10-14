@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
-from app.domain.enums import OutboxStatus, PaymentStatus
+from app.domain.enums import ClaimDecision, OutboxStatus, PaymentStatus
 from app.domain.payment import NewPayment, PaymentCreatedMessage
 
 
@@ -48,6 +48,22 @@ class OutboxClaimRepository(Protocol):
 
 class PaymentGateway(Protocol):
     async def charge(self, payment_id: UUID) -> PaymentStatus: ...
+
+
+class WebhookNotifier(Protocol):
+    async def notify(self, webhook_url: str, payload: dict[str, Any]) -> None: ...
+
+
+class PaymentProcessor(Protocol):
+    async def claim(self, payments: PaymentRepository, payment_id: UUID) -> ClaimDecision: ...
+
+    async def finalize(
+        self,
+        payments: PaymentRepository,
+        payment_id: UUID,
+        *,
+        status: PaymentStatus,
+    ) -> PaymentRecord: ...
 
 
 class EventPublisher(Protocol):
