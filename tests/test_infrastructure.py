@@ -17,6 +17,16 @@ def test_compose_contains_required_services() -> None:
         assert name in text
 
 
+def test_openapi_declares_x_api_key_security_scheme() -> None:
+    schema = app.openapi()
+    assert schema["components"]["securitySchemes"]["API key"] == {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+    }
+    assert {"API key": []} in schema["paths"]["/api/v1/payments"]["post"]["security"]
+
+
 async def test_duplicate_create_returns_existing_payment(api_client: httpx.AsyncClient) -> None:
     payment_id = uuid4()
 
