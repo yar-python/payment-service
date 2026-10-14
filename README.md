@@ -89,6 +89,7 @@ python3 scripts/generate_payments.py --count 500
 Доступные флаги:
 
 ```bash
+-h, --help
 --webhook-url
 --count
 --url

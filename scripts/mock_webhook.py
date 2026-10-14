@@ -23,8 +23,14 @@ def main() -> None:
         "--fail-percent",
         type=int,
         default=int(os.environ.get("WEBHOOK_FAIL_PERCENT", "10")),
+        help="Percentage of requests answered with HTTP 500 (default: %(default)s)",
     )
-    parser.add_argument("--port", type=int, default=int(os.environ.get("WEBHOOK_PORT", "9000")))
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("WEBHOOK_PORT", "9000")),
+        help="Port for the webhook server (default: %(default)s)",
+    )
     args = parser.parse_args()
     if not 0 <= args.fail_percent <= 100:
         raise SystemExit("--fail-percent must be between 0 and 100")
@@ -37,7 +43,6 @@ def main() -> None:
             failed = random.randrange(100) < args.fail_percent
             self.send_response(500 if failed else 200)
             self.end_headers()
-            
 
     logger.info("Webhook receiver on :%s, fail percent %s", args.port, args.fail_percent)
     ThreadingHTTPServer(("0.0.0.0", args.port), Handler).serve_forever()

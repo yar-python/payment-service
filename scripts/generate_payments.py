@@ -39,13 +39,27 @@ def random_amount() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create sample payments")
-    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=10,
+        help="Number of payments to create (default: %(default)s)",
+    )
     parser.add_argument(
         "--url",
         default=f"http://127.0.0.1:{env('API_PORT', '8000')}/api/v1/payments",
+        help="Payment API endpoint (default: %(default)s)",
     )
-    parser.add_argument("--api-key", default=env("API_KEY"))
-    parser.add_argument("--webhook-url", default="http://webhook-mock:9000")
+    parser.add_argument(
+        "--api-key",
+        default=env("API_KEY"),
+        help="API key; defaults to API_KEY from .env",
+    )
+    parser.add_argument(
+        "--webhook-url",
+        default="http://webhook-mock:9000",
+        help="Webhook URL included in every payment (default: %(default)s)",
+    )
     args = parser.parse_args()
     if not args.api_key:
         raise SystemExit("API_KEY is empty in .env. Pass --api-key.")
