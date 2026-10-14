@@ -1,0 +1,93 @@
+x-healthcheck: &healthcheck
+  interval: 5s
+  timeout: 5s
+  retries: 10
+
+x-app: &app
+  build: .
+  image: payment-service
+  restart: on-failure
+  env_file: .env
+  environment:
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    RABBITMQ_HOST: rabbitmq
+    RABBITMQ_PORT: 5672
+  depends_on: &app-depends-on
+    postgres:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+x-background: &background
+  <<: *app
+  depends_on:
+    <<: *app-depends-on
+    api:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    hostname: rabbitmq
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      start_period: 30s
+      retries: 20
+
+  api:
+    <<: *app
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json",
+      ]
+    ports:
+      - "${API_PORT}:8000"
+    healthcheck:
+      <<: *healthcheck
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)",
+        ]
+      start_period: 20s
+
+  outbox-worker:
+    <<: *background
+    command: ["python", "-m", "app.infrastructure.messaging.outbox_publisher"]
+
+  consumer:
+    <<: *background
+    command: ["python", "-m", "app.infrastructure.messaging.consumer"]
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
