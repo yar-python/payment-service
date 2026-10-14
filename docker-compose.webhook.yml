@@ -1,0 +1,21 @@
+name: payment-webhook
+
+services:
+  webhook-mock:
+    image: python:3.12-slim-bookworm
+    restart: unless-stopped
+    command: ["python", "/mock_webhook.py"]
+    environment:
+      WEBHOOK_FAIL_PERCENT: "10"
+      WEBHOOK_PORT: "9000"
+    volumes:
+      - ./scripts/mock_webhook.py:/mock_webhook.py:ro
+    ports:
+      - "9000:9000"
+    networks:
+      - payment
+
+networks:
+  payment:
+    external: true
+    name: payment-service_default
