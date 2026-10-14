@@ -66,13 +66,17 @@ async def test_success_acks_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert dlq.calls == []
 
 
-async def test_retryable_failure_is_scheduled_with_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("error", [SQLAlchemyError("db down"), OSError("dns down"), TimeoutError()])
+async def test_retryable_failure_is_scheduled_with_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+) -> None:
     delivery = FakeMsg()
     dlq = Dlq()
     published: list[dict[str, Any]] = []
 
     async def handle(_payment_id: UUID, **_kwargs: Any) -> None:
-        raise SQLAlchemyError("db down")
+        raise error
 
     async def publish(_body: object, **kwargs: Any) -> None:
         published.append(kwargs)

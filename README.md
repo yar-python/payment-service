@@ -123,6 +123,25 @@ docker compose up -d --scale outbox-worker=2 --scale consumer=10
 - Если вставка платежа откатилась и строки с этим ключом нет, API отвечает `500`. Тот же `Idempotency-Key` можно отправить снова
 
 
+### Проверка retry и DLQ при обработке сообщений консьюмером.
+
+Этот сценарий создаёт временную ошибку БД, чтобы проверить очереди
+`payments.retry.5s`, `payments.retry.10s` и `payments.dlq`.
+
+Создайте платёжи любым способом. Если создается 1 платеж, надо остановить consumer, чтобы он не успел его обработать.
+Затем приостановите PostgreSQL (pause):
+
+```bash
+docker pause "$(docker compose ps -q postgres)"
+```
+
+Первая и вторая ошибки подключения к БД перенесут сообщение соответственно в `payments.retry.5s` и `payments.retry.10s`. После третьей ошибки сообщение попадёт в `payments.dlq`.
+
+По завершении верните PostgreSQL в работу:
+```bash
+docker unpause "$(docker compose ps -q postgres)"
+```
+
 
 ## Примеры
 

@@ -44,7 +44,7 @@ broker = create_broker()
 app = FastStream(broker)
 
 _PERMANENT = (WebhookError, PaymentNotFoundError)
-_RETRYABLE = (SQLAlchemyError,)
+_RETRYABLE = (SQLAlchemyError, OSError, TimeoutError)
 _MAX_PROCESSING_ATTEMPTS = 3
 _RETRY_ATTEMPT_HEADER = "x-retry-attempt"
 
