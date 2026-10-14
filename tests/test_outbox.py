@@ -10,7 +10,12 @@ from app.application.publish_outbox import PublishOutboxService
 from app.config import settings
 from app.domain.enums import OutboxStatus
 from app.domain.payment import PaymentCreatedMessage
-from app.infrastructure.messaging.broker import RabbitEventPublisher, payments_queue
+from app.infrastructure.messaging.broker import (
+    RabbitEventPublisher,
+    payments_queue,
+    payments_retry_5s,
+    payments_retry_10s,
+)
 
 
 def _event(event_type: str = "payment.created", event_id: int = 1) -> SimpleNamespace:
@@ -126,3 +131,11 @@ async def test_payment_created_is_published_to_payments_new() -> None:
     assert broker.kwargs["persist"] is True
     assert broker.kwargs["message_id"] == str(event.id)
     assert broker.kwargs["timeout"] == settings.rabbitmq_publish_timeout_seconds
+
+
+def test_retry_queues_apply_exponential_backoff_and_return_to_payments_new() -> None:
+    assert payments_retry_5s.arguments["x-message-ttl"] == 5_000
+    assert payments_retry_10s.arguments["x-message-ttl"] == 10_000
+    for queue in (payments_retry_5s, payments_retry_10s):
+        assert queue.arguments["x-dead-letter-exchange"] == ""
+        assert queue.arguments["x-dead-letter-routing-key"] == settings.payments_queue

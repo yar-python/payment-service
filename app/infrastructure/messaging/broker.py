@@ -9,8 +9,22 @@ def _queue(name: str) -> RabbitQueue:
     return RabbitQueue(name, durable=True)
 
 
+def _retry_queue(name: str, *, delay_ms: int) -> RabbitQueue:
+    return RabbitQueue(
+        name,
+        durable=True,
+        arguments={
+            "x-message-ttl": delay_ms,
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": settings.payments_queue,
+        },
+    )
+
+
 payments_queue = _queue(settings.payments_queue)
 payments_dlq = _queue(settings.payments_dlq)
+payments_retry_5s = _retry_queue("payments.retry.5s", delay_ms=5_000)
+payments_retry_10s = _retry_queue("payments.retry.10s", delay_ms=10_000)
 
 
 def default_channel() -> Channel:
@@ -32,6 +46,8 @@ def create_broker() -> RabbitBroker:
 async def declare_topology(broker: RabbitBroker) -> None:
     await broker.declare_queue(payments_queue)
     await broker.declare_queue(payments_dlq)
+    await broker.declare_queue(payments_retry_5s)
+    await broker.declare_queue(payments_retry_10s)
 
 
 class RabbitEventPublisher(EventPublisher):

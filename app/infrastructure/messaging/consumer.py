@@ -7,7 +7,7 @@ from uuid import UUID
 
 import httpx
 from faststream import AckPolicy, Context, FastStream
-from faststream.rabbit import RabbitMessage
+from faststream.rabbit import RabbitMessage, RabbitQueue
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.application.process_payment import ProcessPaymentService, webhook_payload
@@ -28,6 +28,8 @@ from app.infrastructure.messaging.broker import (
     declare_topology,
     payments_dlq,
     payments_queue,
+    payments_retry_5s,
+    payments_retry_10s,
 )
 from app.infrastructure.messaging.schemas import PaymentCreatedEvent
 from app.infrastructure.webhook import HttpWebhookNotifier
@@ -43,6 +45,8 @@ app = FastStream(broker)
 
 _PERMANENT = (WebhookError, PaymentNotFoundError)
 _RETRYABLE = (SQLAlchemyError,)
+_MAX_PROCESSING_ATTEMPTS = 3
+_RETRY_ATTEMPT_HEADER = "x-retry-attempt"
 
 
 @asynccontextmanager
@@ -104,6 +108,36 @@ async def _publish_dlq(
     await delivery.ack()
 
 
+def _retry_attempt(delivery: RabbitMessage) -> int:
+    value = delivery.headers.get(_RETRY_ATTEMPT_HEADER, 0)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _retry_queue(attempt: int) -> RabbitQueue:
+    return payments_retry_5s if attempt == 1 else payments_retry_10s
+
+
+async def _schedule_retry(
+    body: PaymentCreatedEvent,
+    *,
+    delivery: RabbitMessage,
+    attempt: int,
+) -> None:
+    await broker.publish(
+        body.model_dump(mode="json"),
+        queue=_retry_queue(attempt),
+        persist=True,
+        mandatory=True,
+        timeout=settings.rabbitmq_publish_timeout_seconds,
+        headers={_RETRY_ATTEMPT_HEADER: attempt},
+        message_id=f"retry-{body.payment_id}-{attempt}",
+    )
+    await delivery.ack()
+
+
 @broker.subscriber(payments_queue, ack_policy=AckPolicy.MANUAL)
 async def process_payment(
     body: PaymentCreatedEvent,
@@ -122,9 +156,13 @@ async def process_payment(
     except _PERMANENT as exc:
         logger.exception("Permanent failure on %s", settings.payments_queue)
         await _publish_dlq(body, error=str(exc), delivery=delivery)
-    except _RETRYABLE:
+    except _RETRYABLE as exc:
         logger.exception("Retryable failure on %s", settings.payments_queue)
-        await delivery.reject(requeue=True)
+        attempt = _retry_attempt(delivery)
+        if attempt + 1 >= _MAX_PROCESSING_ATTEMPTS:
+            await _publish_dlq(body, error=str(exc), delivery=delivery)
+        else:
+            await _schedule_retry(body, delivery=delivery, attempt=attempt + 1)
     else:
         await delivery.ack()
 

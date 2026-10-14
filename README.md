@@ -50,7 +50,7 @@ docker compose up -d --build
 
 Скрипт создаёт платежи через API, `API_KEY` берет из `.env`. 
 Требуется `httpx`. 
-Если `uv`, установить с помощью:
+Если установлен `uv`, можно выполнить команды:
 
 ```bash
 uv venv
@@ -65,14 +65,13 @@ source .venv/bin/activate
 pip3 install httpx
 ```
 
-Для приема вебхуков, генерируемых по умолчанию необходимо поднять webhook-сервер - описан в отдельном Compose.
+Для приема вебхуков, генерируемых по умолчанию в скрипте, необходимо поднять webhook-сервер - расположен в отдельном Compose.
 Консьюмер вызывает его по имени сервиса `http://webhook-mock:9000`. 
 С хоста доступен на [http://localhost:9000](http://localhost:9000).
 
 ```bash
 docker compose -f docker-compose.webhook.yml up -d
 ```
-
 
 
 #### Запуск сприпта генерации платежей:
@@ -84,7 +83,7 @@ uv run python scripts/generate_payments.py --count 500
 или:
 
 ```bash
-python3 scripts/generate_payments.py --count 50
+python3 scripts/generate_payments.py --count 500
 ```
 
 Доступные флаги:
@@ -98,7 +97,7 @@ python3 scripts/generate_payments.py --count 50
 
 Webhook-сервер на каждый запрос отвечает `200` или `500`. Процент ошибок и порт задаются в блоке `environment` файла `docker-compose.webhook.yml`: `WEBHOOK_FAIL_PERCENT` (по умолчанию `10`), `WEBHOOK_PORT` — `9000`. 
 
-Можно запустить локально вместо Compose:
+Можно запустить локально без Compose:
 
 ```bash
 python3 scripts/mock_webhook.py --fail-percent 20
@@ -121,7 +120,7 @@ docker compose up -d --scale outbox-worker=2 --scale consumer=10
 1. API в одной транзакции пишет платёж и событие `payment.created`.
 2. `outbox-worker` захватывает строку (`claimed`), публикует её в `payments.new` и отмечает `published`. Если брокер не принял сообщение, строка снова становится `pending`.
 3. `consumer` вызывает `charge` (обработка платежа в шлюзе): 2–5 секунд и исход 90% `succeeded`, 10% `failed`. Затем пишет `status` и `processed_at` и отправляет webhook на `webhook_url`. Повтор сообщения не вызывает `charge`, если статус уже конечный.
-4. Ошибка отправки webhook повторяется в консьюмере: вторая попытка через 5 секунд, третья через 10. Если все три не удались, копия сообщения из `payments.new` записывается в `payments.dlq` вместе с текстом ошибки, и только потом исходное сообщение подтверждается. `status` и `processed_at` при этом уже сохранены.
+4. Ошибка отправки webhook повторяется в консьюмере: вторая попытка через 5 секунд, третья через 10. Если все три не удались, копия сообщения из `payments.new` записывается в `payments.dlq` вместе с текстом ошибки, и только потом исходное сообщение подтверждается. `status` и `processed_at` при этом уже сохранены. Временные ошибки БД также повторяются не более трёх раз: через очереди `payments.retry.5s` и `payments.retry.10s`, после чего сообщение попадает в DLQ.
 
 - `POST /api/v1/payments` создаёт платёж и отвечает `202 Accepted`
 - Повтор того же `Idempotency-Key` с тем же телом возвращает существующий платёж (`200`)
@@ -182,4 +181,3 @@ uv run ruff format --check app tests
 uv run mypy app
 uv run pytest
 ```
-

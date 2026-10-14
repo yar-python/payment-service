@@ -11,9 +11,10 @@ from app.infrastructure.messaging.schemas import PaymentCreatedEvent
 
 
 class FakeMsg:
-    def __init__(self) -> None:
+    def __init__(self, headers: dict[str, object] | None = None) -> None:
         self.acked = False
         self.rejected: bool | None = None
+        self.headers = headers or {}
 
     async def ack(self) -> None:
         self.acked = True
@@ -51,8 +52,9 @@ async def test_success_acks_once(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(consumer, "handle_payment", handle)
     monkeypatch.setattr(consumer, "_publish_dlq", dlq)
 
+    body = _message()
     await process_payment(
-        _message(),
+        body,
         delivery,  # type: ignore[arg-type]
         gateway=object(),  # type: ignore[arg-type]
         notifier=object(),  # type: ignore[arg-type]
@@ -64,8 +66,49 @@ async def test_success_acks_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert dlq.calls == []
 
 
-async def test_retryable_failure_is_requeued(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retryable_failure_is_scheduled_with_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
     delivery = FakeMsg()
+    dlq = Dlq()
+    published: list[dict[str, Any]] = []
+
+    async def handle(_payment_id: UUID, **_kwargs: Any) -> None:
+        raise SQLAlchemyError("db down")
+
+    async def publish(_body: object, **kwargs: Any) -> None:
+        published.append(kwargs)
+
+    monkeypatch.setattr(consumer, "handle_payment", handle)
+    monkeypatch.setattr(consumer, "_publish_dlq", dlq)
+    monkeypatch.setattr(consumer.broker, "publish", publish)
+
+    body = _message()
+    await process_payment(
+        body,
+        delivery,  # type: ignore[arg-type]
+        gateway=object(),  # type: ignore[arg-type]
+        notifier=object(),  # type: ignore[arg-type]
+        service=object(),  # type: ignore[arg-type]
+    )
+
+    assert delivery.acked is True
+    assert delivery.rejected is None
+    assert dlq.calls == []
+    assert published == [
+        {
+            "queue": consumer.payments_retry_5s,
+            "persist": True,
+            "mandatory": True,
+            "timeout": consumer.settings.rabbitmq_publish_timeout_seconds,
+            "headers": {"x-retry-attempt": 1},
+            "message_id": f"retry-{body.payment_id}-1",
+        }
+    ]
+
+
+async def test_retryable_failure_after_third_attempt_is_dead_lettered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivery = FakeMsg(headers={"x-retry-attempt": 2})
     dlq = Dlq()
 
     async def handle(_payment_id: UUID, **_kwargs: Any) -> None:
@@ -74,17 +117,17 @@ async def test_retryable_failure_is_requeued(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(consumer, "handle_payment", handle)
     monkeypatch.setattr(consumer, "_publish_dlq", dlq)
 
+    body = _message()
     await process_payment(
-        _message(),
+        body,
         delivery,  # type: ignore[arg-type]
         gateway=object(),  # type: ignore[arg-type]
         notifier=object(),  # type: ignore[arg-type]
         service=object(),  # type: ignore[arg-type]
     )
 
-    assert delivery.acked is False
-    assert delivery.rejected is True
-    assert dlq.calls == []
+    assert delivery.acked is True
+    assert dlq.calls == [{**body.model_dump(mode="json"), "error": "db down"}]
 
 
 async def test_permanent_failure_is_dead_lettered(monkeypatch: pytest.MonkeyPatch) -> None:
